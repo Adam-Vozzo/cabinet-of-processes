@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cabinet of Processes</title>
+<meta name="description" content="Sixteen generative-art algorithms in p5.js, one per tab, each with named traits, randomize and mutate, recipe codes and print-size PNG export.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%231a201d'/%3E%3Cpath d='M4 11c5-4 9 3 14 0s6-3 10-1M4 17c5-4 9 3 14 0s6-3 10-1M4 23c5-4 9 3 14 0s6-3 10-1' fill='none' stroke='%23e3e5df' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..110,400..700&family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; }
+[hidden] { display: none !important; }
+img { max-width: 100%; }
+:root {
+  --bg: #e3e5df;
+  --table: #d8dbd4;
+  --panel: #eef0eb;
+  --ink: #1a201d;
+  --muted: #58625b;
+  --faint: #7f8a82;
+  --rule: #c2c8bf;
+  --track: #b9c0b6;
+  --accent: #274f7d;
+  --accent-ink: #ffffff;
+  --err: #a8321f;
+  --shadow: 0 1px 2px rgba(20, 28, 24, .10), 0 18px 40px -18px rgba(20, 28, 24, .45);
+  --display: "Bodoni Moda", "Didot", "Bodoni 72", Georgia, serif;
+  --ui: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121513; --table: #0d0f0e; --panel: #181c19; --ink: #e2e6df; --muted: #9ba59d; --faint: #6f7a72;
+    --rule: #2c332e; --track: #3a433d; --accent: #8db3de; --accent-ink: #0d1826; --err: #f08a74;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 18px 40px -18px rgba(0, 0, 0, .8);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121513; --table: #0d0f0e; --panel: #181c19; --ink: #e2e6df; --muted: #9ba59d; --faint: #6f7a72;
+  --rule: #2c332e; --track: #3a433d; --accent: #8db3de; --accent-ink: #0d1826; --err: #f08a74;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 18px 40px -18px rgba(0, 0, 0, .8);
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 400 14px/1.45 var(--ui); font-stretch: 96%; }
+* { box-sizing: border-box; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- header ---------- */
+.bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px;
+  padding-block: 14px 10px; padding-inline: 20px; background: var(--bg);
+}
+.brand { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+.wordmark { font-family: var(--display); font-style: italic; font-weight: 500; font-size: 28px; line-height: 1; letter-spacing: -.01em; white-space: nowrap; }
+.tagline { font-size: 12px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; font-stretch: 85%; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px;
+  border: 1px solid var(--rule); background: var(--panel); border-radius: 3px; cursor: pointer;
+  font-weight: 500; font-size: 13px; letter-spacing: .01em; white-space: nowrap;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); }
+.kbd { font: 500 10px/1 var(--mono); padding: 3px 4px; border-radius: 2px; border: 1px solid currentColor; opacity: .55; }
+
+/* ---------- tabs ---------- */
+.tabs {
+  display: flex; align-items: stretch; gap: 2px; overflow-x: auto; scrollbar-width: thin;
+  padding-inline: 16px; border-bottom: 1px solid var(--rule); background: var(--bg);
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+}
+.tabs .glabel {
+  flex: none; align-self: center; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; font-stretch: 85%; padding-inline: 8px 6px;
+}
+.tabs .glabel + button { margin-left: 0; }
+.tabs .sep { flex: none; width: 1px; background: var(--rule); margin: 10px 10px; }
+.tabs button {
+  flex: none; border: 0; background: none; cursor: pointer; padding: 11px 10px 10px; font-size: 13.5px; font-weight: 500;
+  color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap;
+}
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 650; }
+
+/* ---------- layout ---------- */
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: calc(100% - 110px); }
+.plate { padding-block: 26px 24px; padding-inline: 28px; display: flex; flex-direction: column; align-items: center; gap: 16px; background: var(--table); min-width: 0; }
+.stage-wrap { width: 100%; display: flex; justify-content: center; }
+.stage { position: relative; max-width: 100%; }
+.stage canvas { display: block; box-shadow: var(--shadow); max-width: 100%; }
+.stage .placeholder { aspect-ratio: 4 / 5; width: min(100%, 520px); max-width: 100%; background: var(--panel); box-shadow: var(--shadow); display: grid; place-items: center; color: var(--muted); padding: 24px; text-align: center; }
+.stage .placeholder.err { color: var(--err); font: 12px/1.5 var(--mono); white-space: pre-wrap; text-align: left; place-items: start; overflow: auto; }
+.progress { width: 100%; max-width: 760px; height: 2px; background: var(--rule); position: relative; overflow: hidden; margin-top: -6px; }
+.progress span { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--ink); transition: width .15s linear; }
+
+.figure { width: 100%; max-width: 760px; display: grid; gap: 12px; }
+.fig { margin: 0; font-family: var(--display); font-size: 17px; line-height: 1.4; text-wrap: balance; }
+.fig .num { font-style: italic; font-weight: 600; margin-right: .35em; }
+.traits { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 18px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.traits div { display: grid; gap: 1px; min-width: 0; }
+.traits dt { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-stretch: 85%; }
+.traits dd { margin: 0; font: 500 13px/1.3 var(--mono); overflow-wrap: anywhere; }
+.about { margin: 0; padding-top: 12px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 13.5px; line-height: 1.55; max-width: 68ch; }
+.about strong { color: var(--ink); font-weight: 600; }
+
+.history { width: 100%; max-width: 760px; display: grid; gap: 6px; }
+.history h2, .panel h2 { margin: 0; font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 600; font-stretch: 85%; }
+.strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; min-height: 64px; align-items: flex-start; }
+.strip button { padding: 0; border: 1px solid transparent; background: none; cursor: pointer; flex: none; line-height: 0; border-radius: 2px; }
+.strip button[aria-current="true"] { border-color: var(--ink); }
+.strip canvas { height: 58px; width: auto; display: block; }
+.strip .empty { color: var(--faint); font-size: 12px; line-height: 1.4; align-self: center; }
+
+/* ---------- control panel ---------- */
+.panel { border-left: 1px solid var(--rule); background: var(--panel); padding-block: 18px 28px; padding-inline: 20px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+@media (min-width: 881px) { .panel { position: sticky; top: 45px; max-height: calc(100vh - 45px); overflow-y: auto; } }
+.row { display: grid; gap: 8px; }
+.seedrow { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; align-items: end; }
+.field { display: grid; gap: 4px; }
+.field label, .ctl label, .ctl .lbl { font-size: 12.5px; font-weight: 500; }
+.text { height: 34px; border: 1px solid var(--rule); background: var(--bg); border-radius: 3px; padding: 0 10px; font: 500 13px var(--mono); width: 100%; min-width: 0; }
+.iconbtn { width: 34px; height: 34px; padding: 0; justify-content: center; }
+
+.formats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.formats button { height: 46px; display: grid; place-items: center; gap: 3px; border: 1px solid var(--rule); background: var(--bg); border-radius: 3px; cursor: pointer; padding: 4px; }
+.formats button span.shape { display: block; border: 1.5px solid currentColor; }
+.formats button small { font: 500 10px/1 var(--mono); color: var(--muted); }
+.formats button[aria-checked="true"], .palettes button[aria-checked="true"], .chips-sel button[aria-checked="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+
+.palettes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.palettes button { border: 1px solid var(--rule); background: var(--bg); border-radius: 3px; cursor: pointer; padding: 5px; display: grid; gap: 5px; text-align: left; min-width: 0; }
+.palettes .sw { display: flex; height: 22px; border-radius: 2px; overflow: hidden; padding: 3px; }
+.palettes .sw i { flex: 1; }
+.palettes small { font-size: 11px; line-height: 1.2; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+details.group { border-top: 1px solid var(--rule); padding-top: 10px; }
+details.group > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-family: var(--display); font-style: italic; font-size: 18px; font-weight: 500; }
+details.group > summary::-webkit-details-marker { display: none; }
+details.group > summary::after { content: "–"; font: 400 16px var(--mono); color: var(--muted); }
+details.group:not([open]) > summary::after { content: "+"; }
+.ctls { display: grid; gap: 14px; padding-top: 12px; }
+.ctl { display: grid; gap: 6px; }
+.ctl-head { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; }
+.ctl-head output { font: italic 500 12.5px var(--mono); color: var(--accent); text-align: right; }
+.chips-sel { display: flex; flex-wrap: wrap; gap: 5px; }
+.chips-sel button { border: 1px solid var(--rule); background: var(--bg); border-radius: 3px; padding: 5px 9px; font-size: 12.5px; cursor: pointer; }
+.pin { width: 22px; height: 22px; padding: 0; border: 0; background: none; cursor: pointer; color: var(--faint); display: grid; place-items: center; border-radius: 2px; }
+.pin:hover { color: var(--ink); }
+.pin[aria-pressed="true"] { color: var(--accent); }
+.pin svg { width: 13px; height: 13px; }
+
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; margin: 0; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--track) var(--a, 0%), var(--ink) var(--a, 0%), var(--ink) var(--b, 0%), var(--track) var(--b, 0%)); }
+input[type=range]::-moz-range-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--track) var(--a, 0%), var(--ink) var(--a, 0%), var(--ink) var(--b, 0%), var(--track) var(--b, 0%)); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5.5px; border-radius: 50%; background: var(--panel); border: 2px solid var(--ink); }
+input[type=range]::-moz-range-thumb { width: 10px; height: 10px; border-radius: 50%; background: var(--panel); border: 2px solid var(--ink); }
+input[type=range]:focus-visible { outline: none; }
+input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent); }
+input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--accent); }
+
+.recipe { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.status { min-height: 18px; font-size: 12.5px; color: var(--accent); }
+.status.err { color: var(--err); }
+
+.sheet { position: fixed; inset: 0; background: rgba(10, 12, 11, .72); display: grid; place-items: center; padding: 24px 16px; z-index: 10; }
+.sheet-in { background: var(--panel); max-width: min(720px, 100%); max-height: 100%; overflow: auto; padding: 16px; display: grid; gap: 12px; border-radius: 4px; }
+.sheet-in img { width: 100%; height: auto; display: block; }
+
+@media (max-width: 880px) {
+  .layout { grid-template-columns: 1fr; }
+  .panel { border-left: 0; border-top: 1px solid var(--rule); }
+  .plate { padding-inline: 16px; padding-block: 18px; }
+  .bar { padding-inline: 16px; }
+  .tabs { padding-inline: 8px; }
+  .tagline { display: none; }
+  .kbd { display: none; }
+  .wordmark { font-size: 24px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="wordmark">Cabinet of Processes</span>
+    <span class="tagline">Generative algorithms · p5.js</span>
+  </div>
+  <div class="actions" role="toolbar" aria-label="Generate">
+    <button class="btn primary" id="b-seed" title="Keep every slider, draw a new seed">New seed <span class="kbd">N</span></button>
+    <button class="btn" id="b-rand" title="Roll every unpinned trait">Randomize <span class="kbd">R</span></button>
+    <button class="btn" id="b-mut" title="Nudge a few unpinned traits">Mutate <span class="kbd">M</span></button>
+    <button class="btn" id="b-replay" title="Run the process again from the start" hidden>Replay <span class="kbd">P</span></button>
+    <button class="btn" id="b-save" title="Render a print-size PNG">Save PNG <span class="kbd">S</span></button>
+  </div>
+</header>
+<nav class="tabs" id="tabs" role="tablist" aria-label="Algorithms"></nav>
+
+<div class="layout">
+  <main class="plate">
+    <div class="stage-wrap" id="stage-wrap">
+      <div class="stage" id="stage"><div class="placeholder">Loading p5.js…</div></div>
+    </div>
+    <div class="progress" id="progress" hidden><span id="progress-bar"></span></div>
+    <section class="figure" aria-live="polite">
+      <p class="fig"><span class="num" id="fignum"></span><span id="caption"></span></p>
+      <dl class="traits" id="traits"></dl>
+      <p class="about"><strong id="about-title"></strong> <span id="about"></span></p>
+    </section>
+    <section class="history">
+      <h2>History</h2>
+      <div class="strip" id="strip"></div>
+    </section>
+  </main>
+
+  <aside class="panel" aria-label="Traits">
+    <div class="seedrow">
+      <div class="field">
+        <label for="seed">Seed</label>
+        <input class="text" id="seed" type="number" min="0" max="999999" step="1" inputmode="numeric">
+      </div>
+      <button class="btn iconbtn" id="seed-dn" title="Previous seed ([)" aria-label="Previous seed">‹</button>
+      <button class="btn iconbtn" id="seed-up" title="Next seed (])" aria-label="Next seed">›</button>
+      <button class="btn iconbtn" id="reset" title="Reset every slider to its default" aria-label="Reset sliders">↺</button>
+    </div>
+    <div class="row" id="format-row">
+      <div class="ctl-head"><h2>Format</h2><span></span><button class="pin" data-pin="format" aria-pressed="false" aria-label="Pin format" title="Pin: Randomize keeps this"></button></div>
+      <div class="formats" id="formats" role="radiogroup" aria-label="Format"></div>
+    </div>
+    <div class="row">
+      <div class="ctl-head"><h2>Palette</h2><span></span><button class="pin" data-pin="palette" aria-pressed="false" aria-label="Pin palette" title="Pin: Randomize keeps this"></button></div>
+      <div class="palettes" id="palettes" role="radiogroup" aria-label="Palette"></div>
+    </div>
+    <div id="groups"></div>
+    <div class="row" style="border-top:1px solid var(--rule);padding-top:14px">
+      <h2>Recipe</h2>
+      <div class="recipe">
+        <input class="text" id="recipe" spellcheck="false" autocomplete="off" aria-label="Recipe code">
+        <button class="btn" id="copy">Copy</button>
+      </div>
+      <p class="note">The code holds the algorithm, seed and every slider. Paste any tab's code here and press Enter to load it.</p>
+      <div class="status" id="status" role="status"></div>
+    </div>
+    <p class="note">Pinned traits stay put when you Randomize or Mutate. Double-click a slider label to reset it. Keys: N, R, M, S, P to replay, [ ] to step the seed, and , . to switch tabs.</p>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.13/p5.min.js"></script>
+<script src="core.js"></script>
+<script src="strata-engine.js"></script>
+<script src="modules/attractors.js"></script>
+<script src="modules/chladni.js"></script>
+<script src="modules/circle-packing.js"></script>
+<script src="modules/differential-growth.js"></script>
+<script src="modules/dla.js"></script>
+<script src="modules/flow-field.js"></script>
+<script src="modules/hankin.js"></script>
+<script src="modules/marbling.js"></script>
+<script src="modules/physarum.js"></script>
+<script src="modules/reaction-diffusion.js"></script>
+<script src="modules/space-colonization.js"></script>
+<script src="modules/strata.js"></script>
+<script src="modules/subdivision.js"></script>
+<script src="modules/thin-section.js"></script>
+<script src="modules/truchet.js"></script>
+<script src="modules/wfc.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
