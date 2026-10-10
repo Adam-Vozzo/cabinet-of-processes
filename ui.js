@@ -103,7 +103,17 @@
     groupsEl.innerHTML = '';
     const byGroup = {};
     const order = [];
-    m.params.forEach((p) => { const g = p.g || 'Traits'; if (!byGroup[g]) { byGroup[g] = []; order.push(g); } byGroup[g].push(p); });
+    // `after: key` shows a param straight after another; recipe codes keep the list order
+    const shown = m.params.filter((p) => !p.after || !m.paramBy[p.after]);
+    m.params.forEach((p) => {
+      if (!p.after || !m.paramBy[p.after]) return;
+      const at = shown.indexOf(m.paramBy[p.after]);
+      if (at < 0) { shown.push(p); return; }
+      let i = at + 1;
+      while (i < shown.length && shown[i].after === p.after) i++;
+      shown.splice(i, 0, p);
+    });
+    shown.forEach((p) => { const g = p.g || 'Traits'; if (!byGroup[g]) { byGroup[g] = []; order.push(g); } byGroup[g].push(p); });
     order.forEach((g) => {
       const det = document.createElement('details');
       det.className = 'group';
@@ -128,9 +138,19 @@
           });
           ctlRefs[p.k] = { p, out: wrap.querySelector('output'), chips };
         } else {
-          wrap.innerHTML = `<div class="ctl-head"><label for="${idp}" title="Double-click to reset">${esc(p.label)}</label><output for="${idp}"></output>${pin}</div><input type="range" id="${idp}" min="${p.min}" max="${p.max}" step="${p.step}">`;
+          const lg = p.scale === 'log';
+          wrap.innerHTML = `<div class="ctl-head"><label for="${idp}" title="Double-click to reset">${esc(p.label)}</label><output for="${idp}"></output>${pin}</div><input type="range" id="${idp}" min="${lg ? 0 : p.min}" max="${lg ? LOG_N : p.max}" step="${lg ? 1 : p.step}">`;
           const input = wrap.querySelector('input');
-          input.addEventListener('input', () => set({ [p.k]: parseFloat(input.value) }));
+          input.addEventListener('input', () => set({ [p.k]: fromPos(p, parseFloat(input.value)) }));
+          // on a log slider an arrow-key tick can be smaller than the value's step: always reach the next value
+          if (lg) input.addEventListener('keydown', (e) => {
+            const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+            if (!d) return;
+            e.preventDefault();
+            let v = C.snap(p, P[p.k] * Math.pow(1.04, d));
+            if (v === P[p.k]) v = C.snap(p, P[p.k] + d * p.step);
+            set({ [p.k]: v });
+          });
           wrap.querySelector('label').addEventListener('dblclick', () => set({ [p.k]: p.def }));
           ctlRefs[p.k] = { p, out: wrap.querySelector('output'), input };
         }
@@ -154,8 +174,12 @@
     const pins = pinsFor(M);
     document.querySelectorAll('.pin').forEach((b) => b.setAttribute('aria-pressed', pins.has(b.dataset.pin) ? 'true' : 'false'));
   }
+  // log-scale sliders travel by ratio: positions 0…LOG_N span min…max geometrically
+  const LOG_N = 1000;
+  function toPos(p, v) { return p.scale === 'log' ? Math.round(LOG_N * Math.log(v / p.min) / Math.log(p.max / p.min)) : v; }
+  function fromPos(p, x) { return p.scale === 'log' ? p.min * Math.pow(p.max / p.min, x / LOG_N) : x; }
   function fillVars(input, p, v) {
-    const t = (v - p.min) / (p.max - p.min || 1);
+    const t = p.scale === 'log' ? toPos(p, v) / LOG_N : (v - p.min) / (p.max - p.min || 1);
     if (p.min < 0 && p.max > 0) {
       const c = (-p.min / (p.max - p.min)) * 100, x = t * 100;
       input.style.setProperty('--a', Math.min(c, x) + '%');
@@ -171,7 +195,8 @@
       if (!r) return;
       r.out.textContent = C.traitName(M, p.k, P);
       if (r.input) {
-        if (String(r.input.value) !== String(P[p.k])) r.input.value = P[p.k];
+        const pos = toPos(p, P[p.k]);
+        if (String(r.input.value) !== String(pos)) r.input.value = pos;
         fillVars(r.input, p, P[p.k]);
       } else {
         [...r.chips.children].forEach((b, i) => b.setAttribute('aria-checked', i === P[p.k] ? 'true' : 'false'));
@@ -237,6 +262,8 @@
         let more = false;
         try { more = m.frame ? !!m.frame(p, P, me.st) : false; }
         catch (e) { me.running = false; p.noLoop(); showError(`${m.name} hit an error.\n${e.message}`); console.error(e); return; }
+        // a module can record a param it settled on (e.g. where a run was stopped) without a restart
+        if (me.st.patch) { const patch = me.st.patch; me.st.patch = null; set(patch, { noRender: true }); }
         progress(more);
         if (!more) { me.running = false; p.noLoop(); settled(); }
       };
@@ -247,18 +274,21 @@
     clearTimeout(restartTimer);
     if (!inst) return;
     inst.dead = true;
+    $('b-stop').hidden = true;
     try { inst.m.dispose && inst.st && inst.m.dispose(inst.p, inst.st); } catch (e) { console.error(e); }
     try { inst.p && inst.p.remove(); } catch (e) { console.error(e); }
     inst = null;
   }
 
-  function restart(delay) {
+  // opts.replay: the user asked to run the process again from the start (a module may
+  // otherwise keep work that the new params don't invalidate, e.g. on a resize)
+  function restart(delay, opts = {}) {
     const me = inst;
     if (!me || !me.p || !me.st) return;
     clearTimeout(restartTimer);
     const go = () => {
       if (me.dead) return;
-      try { me.m.start && me.m.start(me.p, P, me.st); }
+      try { me.m.start && me.m.start(me.p, P, me.st, opts); }
       catch (e) { showError(`${me.m.name} hit an error.\n${e.message}`); console.error(e); return; }
       me.running = true;
       me.p.loop();
@@ -283,6 +313,8 @@
 
   function progress(more) {
     const bar = $('progress');
+    const m = inst && inst.m;
+    $('b-stop').hidden = !(more && m && m.stop && (!m.canStop || m.canStop(inst.st)));
     if (!inst || !inst.m.progress || !more) { bar.hidden = true; return; }
     bar.hidden = false;
     let v = 0;
@@ -338,7 +370,10 @@
   $('b-seed').addEventListener('click', newSeed);
   $('b-rand').addEventListener('click', randomizeAll);
   $('b-mut').addEventListener('click', mutateAll);
-  $('b-replay').addEventListener('click', () => restart(0));
+  $('b-replay').addEventListener('click', () => restart(0, { replay: true }));
+  // Stop: an animated module that supports it finishes now with what it has grown
+  function stopNow() { const me = inst; if (me && me.running && me.m.stop) me.m.stop(me.p, P, me.st); }
+  $('b-stop').addEventListener('click', stopNow);
   $('seed-up').addEventListener('click', () => set({ seed: (P.seed + 1) % 1000000 }));
   $('seed-dn').addEventListener('click', () => set({ seed: (P.seed + 999999) % 1000000 }));
   $('reset').addEventListener('click', () => { const d = C.defaults(M); d.seed = P.seed; d.format = P.format; d.palette = P.palette; set(keepSettings(d)); });
@@ -493,7 +528,8 @@
     else if (k === 'r') randomizeAll();
     else if (k === 'm') mutateAll();
     else if (k === 's') savePNG();
-    else if (k === 'p') restart(0);
+    else if (k === 'p') restart(0, { replay: true });
+    else if (k === 'escape') stopNow();
     else if (k === ']') set({ seed: (P.seed + 1) % 1000000 });
     else if (k === '[') set({ seed: (P.seed + 999999) % 1000000 });
     else if (k === '.') stepTab(1);

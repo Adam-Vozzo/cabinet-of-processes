@@ -216,6 +216,8 @@ float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a
       if (R() < 0.35) {
         changed++;
         if (p.type === 'select') { if (R() < 0.5) o[p.k] = Math.floor(R() * p.options.length); return; }
+        // log-scale params are nudged by ratio (≈ ±30 %), not by a share of the range
+        if (p.scale === 'log') { o[p.k] = snap(p, P[p.k] * Math.exp((R() + R() + R() - 1.5) * 0.56)); return; }
         const span = p.max - p.min;
         const g = (R() + R() + R() - 1.5) * 0.28 * span;
         o[p.k] = snap(p, P[p.k] + (p.step >= 1 ? Math.round(g) || (R() < 0.5 ? -p.step : p.step) : g));

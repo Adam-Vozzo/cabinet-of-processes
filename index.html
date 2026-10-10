@@ -201,6 +201,7 @@ input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--
     <button class="btn" id="b-rand" title="Roll every unpinned trait">Randomize <span class="kbd">R</span></button>
     <button class="btn" id="b-mut" title="Nudge a few unpinned traits">Mutate <span class="kbd">M</span></button>
     <button class="btn" id="b-replay" title="Run the process again from the start" hidden>Replay <span class="kbd">P</span></button>
+    <button class="btn" id="b-stop" title="Stop growing and develop the print from what is there now" hidden>Stop <span class="kbd">Esc</span></button>
     <button class="btn" id="b-save" title="Render a print-size PNG">Save PNG <span class="kbd">S</span></button>
   </div>
 </header>
@@ -251,7 +252,7 @@ input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--
       <p class="note">The code holds the algorithm, seed and every slider. Paste any tab's code here and press Enter to load it.</p>
       <div class="status" id="status" role="status"></div>
     </div>
-    <p class="note">Pinned traits stay put when you Randomize or Mutate. Double-click a slider label to reset it. Keys: N, R, M, S, P to replay, [ ] to step the seed, and , . to switch tabs.</p>
+    <p class="note">Pinned traits stay put when you Randomize or Mutate. Double-click a slider label to reset it. Keys: N, R, M, S, P to replay, Esc to stop a growing run, [ ] to step the seed, and , . to switch tabs.</p>
   </aside>
 </div>
 
