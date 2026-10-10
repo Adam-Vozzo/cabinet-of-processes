@@ -51,6 +51,9 @@ module file and add a `<script src="modules/<id>.js">` line to `index.html` befo
         names: [[1, 'Sparse'], [16, 'Busy'], [48, 'Crowded']] },
       // select: shown as chips; value is the option index
       { k: 'pattern', g: 'Combing', label: 'Pattern', type: 'select', options: ['Stone', 'Gel-git', 'Nonpareil'], def: 1 },
+      // setting: output quality rather than a trait (e.g. a resolution). Randomize, Mutate and
+      // Reset leave it alone and it gets no pin, but it is still part of the recipe.
+      { k: 'detail', g: 'Paper', label: 'Detail', type: 'select', options: ['Standard', 'Fine'], def: 0, setting: true },
     ],
     randomize(R, seed) { return { drops: R.int(8, 40), pattern: R() < 0.5 ? 1 : 2 }; },
     traitName(k, P) { return null; },   // optional: compute a name from geometry; null → default
@@ -70,6 +73,9 @@ module file and add a `<script src="modules/<id>.js">` line to `index.html` befo
 Implicit params the shell manages: `P.seed` (0–999999), `P.format` (index into `Cabinet.FORMATS`,
 aspect = `Cabinet.FORMATS[P.format].a`), `P.palette` (index into your palettes). Every other key in `P`
 is one of your params.
+
+Recipe codes store the params by position, so add new params to the end of the list: older codes
+then still load, with the new param at its default.
 
 ### Rendering notes
 

@@ -33,6 +33,7 @@
   PALETTES.forEach((p) => { p.colors = [p.bg, ...p.strains, p.core]; p.paper = p.bg; });
 
   const SPAWNS = ['Scattered', 'Disc', 'Ring', 'Centre burst'];
+  const RES = ['Standard', 'Fine', 'Superfine'];
 
   const PARAMS = [
     { k: 'sa', g: 'Agents', label: 'Sensor angle', min: 5, max: 90, step: 0.5, def: 30, unit: '°' },
@@ -61,6 +62,8 @@
       names: [[0, 'Clean'], [0.15, 'Fine'], [0.5, 'Silver'], [0.8, 'Coarse']] },
     { k: 'margin', g: 'Plate', label: 'Margin', min: 0, max: 1, step: 0.01, def: 0.3,
       names: [[0, 'Full bleed'], [0.02, 'Narrow'], [0.3, 'Plate'], [0.7, 'Wide']] },
+    // last, so recipes saved before it existed still load (at Standard)
+    { k: 'res', g: 'Plate', label: 'Resolution', type: 'select', options: RES, def: 0, setting: true },
   ];
   const PB = Object.fromEntries(PARAMS.map((p) => [p.k, p]));
 
@@ -80,6 +83,16 @@
   // quantised so an engine's last-bit Math.pow differences can't leak into the simulation
   const depOf = (P) => Math.round(1e6 * 0.01 * Math.pow(100, P.deposit)) / 1e6;
   const agentsOf = (P) => { const { gw, gh } = grid(P); return Math.round(gw * gh * P.pop); };
+  // Resolution: the last stretch of incubation develops on a grid k× finer each way. The
+  // network's layout is set by then; the finer grid lets the trail settle around the agents'
+  // paths instead of spreading over whole coarse cells, so the tubes come out sharp. The
+  // stretch is long enough for the coarse trail to evaporate (≈ 4 / evaporation steps) and
+  // short enough that the network keeps its layout.
+  const kOf = (P) => P.res + 1;
+  const devLen = (P) => Math.min(Math.floor(P.steps / 3), Math.max(20, Math.min(60, Math.round(4 / P.decay))));
+  const devOf = (P) => P.res ? devLen(P) : 0;
+  // everything but Resolution: runs with the same key are identical up to step steps − devLen
+  const simKey = (P) => JSON.stringify(Object.assign({}, P, { res: 0 }));
 
   // Network regime, read off the parameters. The thresholds come from sweeping the model:
   // RA ≫ SA with a short sensor beads into a lattice; SA ≫ RA clots into spots (or, with a
@@ -124,7 +137,7 @@
       x[i] = px; y[i] = py; hx[i] = dcos(a); hy[i] = dsin(a);
       sp[i] = K > 1 ? Math.floor(rnd() * K) : 0;
     }
-    const sim = { gw, gh, K, N, T, T2, x, y, hx, hy, sp, rs: (rs | 0) || 1, t: 0,
+    const sim = { gw, gh, K, N, T, T2, x, y, hx, hy, sp, rs: (rs | 0) || 1, t: 0, k: 1,
       cS: dcos(P.sa * DEG), sS: dsin(P.sa * DEG), cR: dcos(P.ra * DEG), sR: dsin(P.ra * DEG),
       SO: P.so, SS: P.ss, dep: depOf(P), keep: (1 - P.decay) / 16, rep: P.rivalry, jit: P.wander * 0.7,
       // a centre inoculation spreads as a colony: agents stay inside a growing radius
@@ -240,6 +253,54 @@
     }
   }
 
+  // Move the colony onto a grid k× finer each way. The trail is resampled bilinearly; each
+  // agent becomes k² agents scattered over its old cell, keeping its heading and strain, so
+  // the density per cell is unchanged; sensor reach, step and colony radius scale by k. The
+  // blur stays 3×3, so from here on the trail spreads k× less far.
+  function refine(S, k) {
+    const { gw, gh, K, N, T, x, y, hx, hy, sp } = S;
+    const GW = gw * k, GH = gh * k, kk = k * k, NN = N * kk;
+    const U = new Float32Array(GW * GH * K);
+    for (let J = 0; J < GH; J++) {
+      const fy = (J + 0.5) / k - 0.5, y0 = Math.floor(fy), ty = fy - y0;
+      const ya = (y0 + gh) % gh, yb = ya + 1 === gh ? 0 : ya + 1;
+      for (let I = 0; I < GW; I++) {
+        const fx = (I + 0.5) / k - 0.5, x0 = Math.floor(fx), tx = fx - x0;
+        const xa = (x0 + gw) % gw, xb = xa + 1 === gw ? 0 : xa + 1;
+        const a = (ya * gw + xa) * K, b = (ya * gw + xb) * K, c = (yb * gw + xa) * K, d = (yb * gw + xb) * K, o = (J * GW + I) * K;
+        for (let s = 0; s < K; s++) U[o + s] = (T[a + s] * (1 - tx) + T[b + s] * tx) * (1 - ty) + (T[c + s] * (1 - tx) + T[d + s] * tx) * ty;
+      }
+    }
+    const X = new Float32Array(NN), Y = new Float32Array(NN), HX = new Float32Array(NN), HY = new Float32Array(NN), SP = new Uint8Array(NN);
+    let rs = S.rs;
+    for (let i = 0, j = 0; i < N; i++) {
+      for (let c = 0; c < kk; c++, j++) {
+        rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5;
+        const u = (rs >>> 0) / 4294967296;
+        rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5;
+        let px = (x[i] + u - 0.5) * k, py = (y[i] + (rs >>> 0) / 4294967296 - 0.5) * k;
+        if (px < 0) px += GW; else if (px >= GW) px -= GW;
+        if (py < 0) py += GH; else if (py >= GH) py -= GH;
+        X[j] = px; Y[j] = py; HX[j] = hx[i]; HY[j] = hy[i]; SP[j] = sp[i];
+      }
+    }
+    Object.assign(S, { gw: GW, gh: GH, N: NN, T: U, T2: new Float32Array(U.length), x: X, y: Y, hx: HX, hy: HY, sp: SP,
+      rs, SO: S.SO * k, SS: S.SS * k, k: S.k * k });
+    if (S.grow) S.grow = { r0: S.grow.r0 * k, v: S.grow.v * k, max: S.grow.max * k };
+  }
+
+  // The coarse colony where a finer grid would take over, so switching Resolution picks the
+  // run up there instead of growing the whole colony again
+  function snapshot(S, key) {
+    return { key, t: S.t, rs: S.rs, T: S.T.slice(), x: S.x.slice(), y: S.y.slice(), hx: S.hx.slice(), hy: S.hy.slice(), sp: S.sp.slice() };
+  }
+  function resume(P, sn) {
+    const S = makeSim(P);
+    S.T.set(sn.T); S.x.set(sn.x); S.y.set(sn.y); S.hx.set(sn.hx); S.hy.set(sn.hy); S.sp.set(sn.sp);
+    S.t = sn.t; S.rs = sn.rs;
+    return S;
+  }
+
   /* ---------------- rendering ---------------- */
   function lin(h) { return C.hexRGB(h); }
 
@@ -302,22 +363,23 @@
     out[0] = r + (core[0] - r) * c; out[1] = g + (core[1] - g) * c; out[2] = b + (core[2] - b) * c;
   }
 
-  // glow: quarter-resolution emission (or density), box-blurred three times (≈ gaussian)
+  // glow: quarter-resolution emission (or density), box-blurred three times (≈ gaussian).
+  // Blocks are f = 4k cells, so a refined grid gets the same halo as a coarse one.
   function buildGlow(S, L, P) {
     const { gw, gh, K, T } = S;
-    const w = Math.ceil(gw / 4), h = Math.ceil(gh / 4);
+    const f = 4 * S.k, w = Math.ceil(gw / f), h = Math.ceil(gh / f);
     const G = new Float32Array(w * h * 3), G2 = new Float32Array(w * h * 3);
-    if (P.glow <= 0) return { w, h, G, on: false };
+    if (P.glow <= 0) return { w, h, f, G, on: false };
     const { cols, wL, kv } = L;
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
       let e0 = 0, e1 = 0, e2 = 0;
       for (let s = 0; s < K; s++) {
         let acc = 0;
-        for (let dy = 0; dy < 4; dy++) {
-          const yi = Math.min(gh - 1, j * 4 + dy) * gw;
-          for (let dx = 0; dx < 4; dx++) acc += T[(yi + Math.min(gw - 1, i * 4 + dx)) * K + s];
+        for (let dy = 0; dy < f; dy++) {
+          const yi = Math.min(gh - 1, j * f + dy) * gw;
+          for (let dx = 0; dx < f; dx++) acc += T[(yi + Math.min(gw - 1, i * f + dx)) * K + s];
         }
-        let q = ((acc / 16) * kv) | 0; if (q > WN) q = WN;
+        let q = ((acc / (f * f)) * kv) | 0; if (q > WN) q = WN;
         const v = wL[q];
         e0 += v * cols[s * 3]; e1 += v * cols[s * 3 + 1]; e2 += v * cols[s * 3 + 2];
       }
@@ -326,7 +388,7 @@
     }
     const r = Math.max(1, Math.round(1 + P.glow * 2.2));
     for (let it = 0; it < 3; it++) { boxH(G, G2, w, h, r); boxV(G2, G, w, h, r); }
-    return { w, h, G, on: true };
+    return { w, h, f, G, on: true };
   }
   function boxH(src, dst, w, h, r) {
     const inv = 1 / (2 * r + 1);
@@ -357,8 +419,8 @@
   }
   // bilinear, toroidal; gx, gy in full-grid cells
   function sampleGlow(gb, gx, gy, o) {
-    const { w, h, G } = gb;
-    const fx = gx / 4 - 0.5, fy = gy / 4 - 0.5;
+    const { w, h, f, G } = gb;
+    const fx = gx / f - 0.5, fy = gy / f - 0.5;
     let x0 = Math.floor(fx), y0 = Math.floor(fy);
     const tx = fx - x0, ty = fy - y0;
     x0 = ((x0 % w) + w) % w; y0 = ((y0 % h) + h) % h;
@@ -535,7 +597,7 @@
     animated: true,
     restartDelay: 120,
     subtitle: 'Slime-mould transport network',
-    about: 'Thousands of agents follow Jeff Jones’s 2010 model of the slime mould Physarum polycephalum: each smells the trail ahead through three sensors, turns toward the strongest, steps and deposits more. The trail blurs and evaporates, and a transport network organises itself, then slowly minimises. Rival strains repel each other and share out the dish.',
+    about: 'Thousands of agents follow Jeff Jones’s 2010 model of the slime mould Physarum polycephalum: each smells the trail ahead through three sensors, turns toward the strongest, steps and deposits more. The trail blurs and evaporates, and a transport network organises itself, then slowly minimises. Rival strains repel each other and share out the dish. A finer Resolution develops the last few dozen steps on a denser grid, sharpening the tubes without moving them.',
     formats: [0, 1, 2, 3],
     formatOdds: [3, 2, 1.3, 0.6],
     defaults: { seed: 1618, format: 0, palette: 0 },
@@ -583,6 +645,7 @@
       if (k === 'pop') return fmtAgents(agentsOf(P));
       if (k === 'rivalry' && P.species === 1) return 'n/a';
       if (k === 'steps') return `${P.steps} steps`;
+      if (k === 'res') { const { gw, gh } = grid(P), r = kOf(P); return `${gw * r} × ${gh * r} cells`; }
       return null;
     },
 
@@ -606,28 +669,39 @@
         ['Inoculation', SPAWNS[P.spawn]],
         ['Incubation', `${P.steps} steps`],
         ['Plate', `${C.nameFrom(PB.glow, P.glow)} glow, ${C.nameFrom(PB.exposure, P.exposure).toLowerCase()}`],
+        ['Resolution', P.res ? `${this.traitName('res', P)}, last ${devOf(P)} steps` : this.traitName('res', P)],
       ];
     },
 
     setup(p) { return {}; },
 
     start(p, P, st) {
+      st.key = simKey(P);
+      // only Resolution changed (not a replay): resume from the coarse snapshot
+      st.resume = st.snap && st.P && st.P.res !== P.res && st.snap.key === st.key ? st.snap : null;
       st.P = P;
       st.sim = null;           // built lazily in frame() so slider drags stay cheap
       st.total = P.steps;
+      st.k = kOf(P);
+      st.dev = devOf(P);       // the last st.dev steps run on the k× finer grid
+      st.snapAt = P.steps - devLen(P);
       st.phase = 0;            // 0 simulate, 1 develop the full-resolution print, 2 done
       st.hi = null;
       st.look = null;
     },
 
     frame(p, P, st) {
-      if (!st.sim) { st.sim = makeSim(P); st.fr = 0; st.pms = 4; }
+      if (!st.sim) { st.sim = st.resume ? resume(P, st.resume) : makeSim(P); st.fr = 0; st.pms = 4; }
       const S = st.sim;
       if (st.phase === 0) {
         // the dish is redrawn every third frame; the frames between are all simulation
         const show = st.fr % 3 === 0;
         const within = C.budget(show ? Math.max(3, 11.5 - st.pms) : 11.5);
-        do stepSim(S); while (S.t < st.total && within());
+        do {
+          if (S.t === st.snapAt && !(st.snap && st.snap.key === st.key)) st.snap = snapshot(S, st.key);
+          if (S.k < st.k && S.t === st.total - st.dev) { refine(S, st.k); st.look = null; }
+          stepSim(S);
+        } while (S.t < st.total && within());
         const last = S.t >= st.total;
         if (show || last) {
           const t0 = performance.now();
@@ -639,30 +713,21 @@
         return true;
       }
       if (st.phase === 1) {
-        // develop the print at the canvas's real pixel size, a band of rows per frame
-        const W = p.width * p.pixelDensity(), H = p.height * p.pixelDensity();
-        if (!st.hi || st.hi.W !== W || st.hi.H !== H) {
-          const c = document.createElement('canvas'); c.width = W; c.height = H;
-          const ctx = c.getContext('2d');
-          st.hi = { W, H, c, ctx, img: ctx.createImageData(W, H), y: 0 };
-        }
-        const hi = st.hi, band = Math.max(4, Math.floor(H / 100));
+        // develop the print at the canvas's real pixel size (whole pixels: width × density
+        // isn't, at 125 % or 150 % display scaling), a band of rows per frame, each band laid
+        // over the preview as soon as it's done
+        const [W, H] = C.bufferSize(p);
+        if (!st.hi || st.hi.W !== W || st.hi.H !== H) st.hi = { W, H, img: p.drawingContext.createImageData(W, H), y: 0 };
+        const hi = st.hi, band = Math.max(4, Math.floor(H / 100)), y0 = hi.y;
         const t = C.budget(11);
         while (hi.y < H && t()) {
           const y1 = Math.min(H, hi.y + band);
           renderRows(P, S, st.look, st.gb, hi.img, W, H, hi.y, y1);
           hi.y = y1;
         }
-        if (hi.y >= H) {
-          hi.ctx.putImageData(hi.img, 0, 0);
-          const ctx = p.drawingContext;
-          ctx.save();
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.drawImage(hi.c, 0, 0);
-          ctx.restore();
-          st.phase = 2;
-          return false;
-        }
+        // putImageData writes device pixels and ignores the density transform
+        p.drawingContext.putImageData(hi.img, 0, 0, 0, y0, W, hi.y - y0);
+        if (hi.y >= H) { st.phase = 2; return false; }
         return true;
       }
       return false;
@@ -670,7 +735,11 @@
 
     progress(st) {
       if (!st.sim) return 0;
-      if (st.phase === 0) return 0.93 * st.sim.t / st.total;
+      if (st.phase === 0) {
+        // a step on the finer grid costs k² coarse ones
+        const t = st.sim.t, base = st.total - st.dev, k2 = st.k * st.k;
+        return 0.93 * (Math.min(t, base) + Math.max(0, t - base) * k2) / (base + st.dev * k2);
+      }
       return 0.93 + 0.07 * (st.hi ? st.hi.y / st.hi.H : 0);
     },
 
