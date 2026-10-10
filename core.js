@@ -273,7 +273,9 @@ float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a
   // Size of the drawing buffer in device pixels (what gl_FragCoord measures).
   function bufferSize(p) {
     if (p._renderer && p._renderer.GL) { const gl = p._renderer.GL; return [gl.drawingBufferWidth, gl.drawingBufferHeight]; }
-    return [p.width * p.pixelDensity(), p.height * p.pixelDensity()];
+    // the canvas's own size: width × density is fractional at 125 %, 150 %… display scaling
+    const c = p.drawingContext.canvas;
+    return [c.width, c.height];
   }
   function hexRGB(h) {
     const n = parseInt(h.slice(1), 16);

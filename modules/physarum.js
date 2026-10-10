@@ -639,30 +639,21 @@
         return true;
       }
       if (st.phase === 1) {
-        // develop the print at the canvas's real pixel size, a band of rows per frame
-        const W = p.width * p.pixelDensity(), H = p.height * p.pixelDensity();
-        if (!st.hi || st.hi.W !== W || st.hi.H !== H) {
-          const c = document.createElement('canvas'); c.width = W; c.height = H;
-          const ctx = c.getContext('2d');
-          st.hi = { W, H, c, ctx, img: ctx.createImageData(W, H), y: 0 };
-        }
-        const hi = st.hi, band = Math.max(4, Math.floor(H / 100));
+        // develop the print at the canvas's real pixel size (whole pixels: width × density
+        // isn't, at 125 % or 150 % display scaling), a band of rows per frame, each band laid
+        // over the preview as soon as it's done
+        const [W, H] = C.bufferSize(p);
+        if (!st.hi || st.hi.W !== W || st.hi.H !== H) st.hi = { W, H, img: p.drawingContext.createImageData(W, H), y: 0 };
+        const hi = st.hi, band = Math.max(4, Math.floor(H / 100)), y0 = hi.y;
         const t = C.budget(11);
         while (hi.y < H && t()) {
           const y1 = Math.min(H, hi.y + band);
           renderRows(P, S, st.look, st.gb, hi.img, W, H, hi.y, y1);
           hi.y = y1;
         }
-        if (hi.y >= H) {
-          hi.ctx.putImageData(hi.img, 0, 0);
-          const ctx = p.drawingContext;
-          ctx.save();
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.drawImage(hi.c, 0, 0);
-          ctx.restore();
-          st.phase = 2;
-          return false;
-        }
+        // putImageData writes device pixels and ignores the density transform
+        p.drawingContext.putImageData(hi.img, 0, 0, 0, y0, W, hi.y - y0);
+        if (hi.y >= H) { st.phase = 2; return false; }
         return true;
       }
       return false;
