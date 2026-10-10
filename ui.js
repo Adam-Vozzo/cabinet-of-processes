@@ -114,8 +114,10 @@
         const wrap = document.createElement('div');
         wrap.className = 'ctl';
         const idp = `p-${m.id}-${p.k}`;
+        // settings are never randomized, so a pin would do nothing
+        const pin = p.setting ? '' : `<button class="pin" data-pin="${p.k}" aria-pressed="false" aria-label="Pin ${esc(p.label)}" title="Pin: Randomize keeps this"></button>`;
         if (p.type === 'select') {
-          wrap.innerHTML = `<div class="ctl-head"><span class="lbl" id="${idp}-l">${esc(p.label)}</span><output></output><button class="pin" data-pin="${p.k}" aria-pressed="false" aria-label="Pin ${esc(p.label)}" title="Pin: Randomize keeps this"></button></div><div class="chips-sel" role="radiogroup" aria-labelledby="${idp}-l"></div>`;
+          wrap.innerHTML = `<div class="ctl-head"><span class="lbl" id="${idp}-l">${esc(p.label)}</span><output></output>${pin}</div><div class="chips-sel" role="radiogroup" aria-labelledby="${idp}-l"></div>`;
           const chips = wrap.querySelector('.chips-sel');
           p.options.forEach((o, i) => {
             const b = document.createElement('button');
@@ -126,7 +128,7 @@
           });
           ctlRefs[p.k] = { p, out: wrap.querySelector('output'), chips };
         } else {
-          wrap.innerHTML = `<div class="ctl-head"><label for="${idp}" title="Double-click to reset">${esc(p.label)}</label><output for="${idp}"></output><button class="pin" data-pin="${p.k}" aria-pressed="false" aria-label="Pin ${esc(p.label)}" title="Pin: Randomize keeps this"></button></div><input type="range" id="${idp}" min="${p.min}" max="${p.max}" step="${p.step}">`;
+          wrap.innerHTML = `<div class="ctl-head"><label for="${idp}" title="Double-click to reset">${esc(p.label)}</label><output for="${idp}"></output>${pin}</div><input type="range" id="${idp}" min="${p.min}" max="${p.max}" step="${p.step}">`;
           const input = wrap.querySelector('input');
           input.addEventListener('input', () => set({ [p.k]: parseFloat(input.value) }));
           wrap.querySelector('label').addEventListener('dblclick', () => set({ [p.k]: p.def }));
@@ -320,10 +322,12 @@
   }
 
   function newSeed() { set({ seed: Math.floor(Math.random() * 999999) }); }
+  // settings (output quality, not traits) ride along like pinned traits
+  function keepSettings(o) { M.params.forEach((p) => { if (p.setting) o[p.k] = P[p.k]; }); return o; }
   function randomizeAll() {
     const r = C.randomize(M, Math.floor(Math.random() * 999999));
     pinsFor(M).forEach((k) => { r[k] = P[k]; });
-    set(r);
+    set(keepSettings(r));
   }
   function mutateAll() {
     const m = C.mutate(M, P, mutSalt++);
@@ -337,7 +341,7 @@
   $('b-replay').addEventListener('click', () => restart(0));
   $('seed-up').addEventListener('click', () => set({ seed: (P.seed + 1) % 1000000 }));
   $('seed-dn').addEventListener('click', () => set({ seed: (P.seed + 999999) % 1000000 }));
-  $('reset').addEventListener('click', () => { const d = C.defaults(M); d.seed = P.seed; d.format = P.format; d.palette = P.palette; set(d); });
+  $('reset').addEventListener('click', () => { const d = C.defaults(M); d.seed = P.seed; d.format = P.format; d.palette = P.palette; set(keepSettings(d)); });
   $('seed').addEventListener('change', () => { const v = parseInt($('seed').value, 10); if (Number.isFinite(v)) set({ seed: v }); });
 
   /* ---------------- history ---------------- */

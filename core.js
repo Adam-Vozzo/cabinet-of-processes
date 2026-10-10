@@ -184,7 +184,9 @@ float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a
   }
 
   /* Randomize: the module's randomize(R, seed) returns any subset of keys
-     (including format/palette); missing params are drawn uniformly.       */
+     (including format/palette); missing params are drawn uniformly.
+     Settings (p.setting: output quality, not a trait) keep their default here
+     and are never rolled or nudged; the shell carries the current value over. */
   function randomize(m, seed) {
     const R = rng((seed * 2654435761) >>> 0);
     for (let i = 0; i < 12; i++) R();   // warm up: decorrelates nearby seeds' first draws
@@ -195,6 +197,7 @@ float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a
     const r = (m.randomize && m.randomize(R, seed)) || {};
     m.params.forEach((p) => {
       const v = p.k in r ? r[p.k]
+        : p.setting ? p.def
         : p.type === 'select' ? Math.floor(R() * p.options.length)
         : p.min + R() * (p.max - p.min);
       o[p.k] = snap(p, v);
@@ -208,7 +211,8 @@ float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a
     const R = rng(((P.seed + 1) * 7919 + salt * 104729) >>> 0);
     const o = Object.assign({}, P);
     let changed = 0;
-    m.params.forEach((p) => {
+    const traits = m.params.filter((p) => !p.setting);
+    traits.forEach((p) => {
       if (R() < 0.35) {
         changed++;
         if (p.type === 'select') { if (R() < 0.5) o[p.k] = Math.floor(R() * p.options.length); return; }
@@ -217,8 +221,8 @@ float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a
         o[p.k] = snap(p, P[p.k] + (p.step >= 1 ? Math.round(g) || (R() < 0.5 ? -p.step : p.step) : g));
       }
     });
-    if (!changed && m.params.length) {
-      const p = m.params[Math.floor(R() * m.params.length)];
+    if (!changed && traits.length) {
+      const p = traits[Math.floor(R() * traits.length)];
       o[p.k] = snap(p, P[p.k] + (R() - 0.5) * 0.3 * (p.max - p.min));
     }
     if (R() < 0.1 && m.palettes.length > 1) o.palette = Math.floor(R() * m.palettes.length);
