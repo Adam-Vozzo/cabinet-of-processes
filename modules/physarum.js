@@ -619,7 +619,7 @@
     animated: true,
     restartDelay: 120,
     subtitle: 'Slime-mould transport network',
-    about: 'Thousands of agents follow Jeff Jones’s 2010 model of the slime mould Physarum polycephalum: each smells the trail ahead through three sensors, turns toward the strongest, steps and deposits more. The trail blurs and evaporates, and a transport network organises itself, then slowly minimises. Rival strains repel each other and share out the dish. A finer Resolution develops the last few dozen steps on a denser grid, sharpening the tubes without moving them; a harder Contrast prints their edges crisp. Push Incubation to Ongoing and the colony grows until you press Stop.',
+    about: 'Thousands of agents follow Jeff Jones’s 2010 model of the slime mould Physarum polycephalum: each smells the trail ahead through three sensors, turns toward the strongest, steps and deposits more. The trail blurs and evaporates, and a transport network organises itself, then slowly minimises. Rival strains repel each other and share out the dish. A finer Resolution develops the last few dozen steps on a denser grid, sharpening the tubes without moving them; a harder Contrast prints their edges crisp. Push Incubation to Ongoing and the colony grows until you press Stop; drag along the line under the dish to save a stretch of the growth as a video.',
     formats: [0, 1, 2, 3],
     formatOdds: [3, 2, 1.3, 0.6],
     defaults: { seed: 1618, format: 0, palette: 0 },
@@ -779,6 +779,32 @@
       if (T >= st.total) return;           // it finishes sooner as it is
       st.total = T; st.dev = devOf(at(T)); st.snapAt = T - devLen(at(T));
       st.patch = { steps: T };
+    },
+
+    // the run as a timeline of steps, so a stretch of it can be saved as a video
+    timeline(P, st) { return { length: P.steps, at: st.sim ? Math.min(st.sim.t, P.steps) : 0 }; },
+    // Grow the colony again (deterministically, so these are the run's own states, on the same
+    // fine-grid schedule) and print it at each of opts.steps, opts.width × opts.height. While it
+    // grows towards the next frame it yields the step it has reached; then it yields the frame,
+    // whose buffer is reused, so use each frame before asking for the next.
+    *clip(p, P, st, opts) {
+      const { steps, width: W, height: H } = opts;
+      const total = P.steps, k = kOf(P), dev = devOf(P), sn = st.snap;
+      const S = sn && sn.key === coreKey(P) && sn.t <= steps[0] && sn.t <= total - dev ? resume(P, sn) : makeSim(P);
+      const PP = opts.grain === false ? Object.assign({}, P, { grain: 0 }) : P;
+      const img = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) };
+      let t0 = performance.now();
+      for (const target of steps) {
+        while (S.t < target) {
+          if (S.k < k && S.t === total - dev) refine(S, k);
+          stepSim(S);
+          if (performance.now() - t0 > 30) { yield S.t; t0 = performance.now(); }
+        }
+        const L = makeLook(PP, reference(S));
+        renderRows(PP, S, L, buildGlow(S, L, PP), img, W, H, 0, H);
+        yield img;
+        t0 = performance.now();
+      }
     },
 
     progress(st) {

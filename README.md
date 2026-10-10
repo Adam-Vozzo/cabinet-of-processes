@@ -38,6 +38,7 @@ print-size PNG export.
 - The pin next to a slider keeps it fixed when you Randomize or Mutate.
 - The **recipe** code holds the algorithm, seed and every slider. Paste one into the recipe box to load it.
 - **Save PNG** renders about 3000 px tall.
+- On Physarum, the line under the image counts the steps as the colony grows. Once it has finished, drag along the line to pick a stretch and save it as an MP4 (1080 px tall) or a GIF (480 px tall).
 - Keys: `N` new seed, `R` randomize, `M` mutate, `S` save, `P` replay, `Esc` stop a growing run, `[` `]` step the seed, `,` `.` switch tabs.
 
 Reaction–Diffusion, Strata, Marbling, Thin Section and Chladni need WebGL2.
@@ -55,6 +56,7 @@ python3 -m http.server 8000
 ```
 index.html          page, styles, script tags
 core.js             module registry, seeded RNG, parameter helpers, recipe codes
+media.js            MP4 (WebCodecs) and GIF encoders for saving a stretch of a process
 ui.js               tabs, trait panel, p5 lifecycle, history, export
 strata-engine.js    the Strata shader and its parameter space
 modules/            one file per tab
