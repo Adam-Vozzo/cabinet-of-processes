@@ -73,6 +73,12 @@ module file and add a `<script src="modules/<id>.js">` line to `index.html` befo
                                             //   here as final: a resize can call frame() once before start().
     stop(p, P, st) { },                     // optional: finish now (Stop button, Esc) with what has grown
     canStop(st) { return true; },           // optional: whether Stop is offered at the moment
+    timeline(P, st) { return { length: 400, at: 120 }; },   // optional, with clip(): the run as steps. The
+                                            //   progress line then shows the step and, once settled,
+                                            //   lets the user pick a stretch to save as MP4 or GIF
+    *clip(p, P, st, opts) { },              // run again; yield each of opts.steps as a frame (ImageData-
+                                            //   like, opts.width × opts.height; grain off if opts.grain is
+                                            //   false), or a number (the step reached) on the way there
     progress(st) { return 0.5; },           // optional 0..1 for the progress bar
     exportAt(p, P, W, H, st) { },           // optional: return a W×H HTMLCanvasElement (or a Promise of one)
     dispose(p, st) { },                     // optional cleanup

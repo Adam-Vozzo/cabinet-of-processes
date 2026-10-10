@@ -275,6 +275,7 @@
     if (!inst) return;
     inst.dead = true;
     $('b-stop').hidden = true;
+    cancelClip(false);
     try { inst.m.dispose && inst.st && inst.m.dispose(inst.p, inst.st); } catch (e) { console.error(e); }
     try { inst.p && inst.p.remove(); } catch (e) { console.error(e); }
     inst = null;
@@ -286,6 +287,7 @@
     const me = inst;
     if (!me || !me.p || !me.st) return;
     clearTimeout(restartTimer);
+    cancelClip(false);
     const go = () => {
       if (me.dead) return;
       try { me.m.start && me.m.start(me.p, P, me.st, opts); }
@@ -315,10 +317,12 @@
     const bar = $('progress');
     const m = inst && inst.m;
     $('b-stop').hidden = !(more && m && m.stop && (!m.canStop || m.canStop(inst.st)));
-    if (!inst || !inst.m.progress || !more) { bar.hidden = true; return; }
-    bar.hidden = false;
     let v = 0;
-    try { v = Math.max(0, Math.min(1, inst.m.progress(inst.st) || 0)); } catch (e) { v = 0; }
+    if (more && m && m.progress) { try { v = Math.max(0, Math.min(1, m.progress(inst.st) || 0)); } catch (e) { v = 0; } }
+    // a module with a timeline shows its progress on the clip line instead
+    if (m && m.timeline && m.clip) { bar.hidden = true; clipSync(more, v); return; }
+    if (!more || !m || !m.progress) { bar.hidden = true; return; }
+    bar.hidden = false;
     $('progress-bar').style.width = (v * 100).toFixed(1) + '%';
   }
 
@@ -350,6 +354,8 @@
     syncTabs();
     renderStrip();
     $('progress').hidden = true;
+    clip.a = clip.b = null; clip.len = 0; clip.running = true; clip.progress = 0; clip.at = 0;
+    $('clip').hidden = true;
     mount(m);
   }
 
@@ -372,7 +378,11 @@
   $('b-mut').addEventListener('click', mutateAll);
   $('b-replay').addEventListener('click', () => restart(0, { replay: true }));
   // Stop: an animated module that supports it finishes now with what it has grown
-  function stopNow() { const me = inst; if (me && me.running && me.m.stop) me.m.stop(me.p, P, me.st); }
+  function stopNow() {
+    if (clip.job) { clip.job.cancelled = true; return; }
+    const me = inst;
+    if (me && me.running && me.m.stop) me.m.stop(me.p, P, me.st);
+  }
   $('b-stop').addEventListener('click', stopNow);
   $('seed-up').addEventListener('click', () => set({ seed: (P.seed + 1) % 1000000 }));
   $('seed-dn').addEventListener('click', () => set({ seed: (P.seed + 999999) % 1000000 }));
@@ -393,6 +403,7 @@
     if (!inst || !inst.p) return;
     syncControls();   // modules may name traits from measured results (D, Strahler order…)
     syncTexts();
+    clipSync(false, 1);
     const code = C.encode(M, P);
     const h = histFor(M);
     if (h.length && h[0].code === code) return markHistory();
@@ -475,37 +486,42 @@
       }
       const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
       if (!blob) { status('The render failed. Try a smaller window or another browser.', true); return; }
-      const name = `${m.id}-${params.seed}.png`;
-      const dl = await getDownloads();
-      if (dl) {
-        try { await dl.save({ filename: name, data: blob }); status(`Saved ${name}.`); return; }
-        catch (e) {
-          if (e && e.code === 'declined') { status('Save cancelled.'); return; }
-          if (e && e.code === 'rate_limited') { status('A save prompt is already open.'); return; }
-        }
-      }
-      if (!window.claude) {
-        // an ordinary web page (e.g. GitHub Pages): the browser can save the file directly
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = name;
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
-        status(`Saved ${name} (${canvas.width} × ${canvas.height}).`);
-        return;
-      }
-      showFallback(blob, name, canvas.width, canvas.height);
+      await deliver(blob, `${m.id}-${params.seed}.png`, canvas.width, canvas.height);
     } catch (e) {
       console.error(e);
       status(`Export failed: ${e.message}`, true);
     } finally { saving = false; }
   }
+  // hand a finished file to the user: the host's save prompt, a plain download, or a sheet to save from
+  async function deliver(blob, name, W, H) {
+    const dl = await getDownloads();
+    if (dl) {
+      try { await dl.save({ filename: name, data: blob }); status(`Saved ${name}.`); return; }
+      catch (e) {
+        if (e && e.code === 'declined') { status('Save cancelled.'); return; }
+        if (e && e.code === 'rate_limited') { status('A save prompt is already open.'); return; }
+      }
+    }
+    if (!window.claude) {
+      // an ordinary web page (e.g. GitHub Pages): the browser can save the file directly
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      status(`Saved ${name} (${W} × ${H}).`);
+      return;
+    }
+    showFallback(blob, name, W, H);
+  }
   function showFallback(blob, name, W, H) {
     const url = URL.createObjectURL(blob);
+    const video = blob.type.startsWith('video/'), what = video ? 'video' : 'image';
     const sheet = document.createElement('div');
     sheet.className = 'sheet';
-    sheet.innerHTML = `<div class="sheet-in" role="dialog" aria-label="Rendered image"><img alt="Rendered image, ${W} by ${H} pixels"><p class="note">${W} × ${H} px. Right-click or long-press the image to save it as ${esc(name)}.</p><div><button class="btn">Close</button></div></div>`;
-    sheet.querySelector('img').src = url;
+    const media = video ? `<video controls loop autoplay muted playsinline aria-label="Rendered video, ${W} by ${H} pixels"></video>` : `<img alt="Rendered image, ${W} by ${H} pixels">`;
+    sheet.innerHTML = `<div class="sheet-in" role="dialog" aria-label="Rendered ${what}">${media}<p class="note">${W} × ${H} px. Right-click or long-press the ${what} to save it as ${esc(name)}.</p><div><button class="btn">Close</button></div></div>`;
+    sheet.querySelector(video ? 'video' : 'img').src = url;
     const close = () => { URL.revokeObjectURL(url); sheet.remove(); };
     sheet.querySelector('button').addEventListener('click', close);
     sheet.addEventListener('click', (e) => { if (e.target === sheet) close(); });
@@ -513,6 +529,170 @@
     status('');
   }
   $('b-save').addEventListener('click', savePNG);
+
+  /* ---------------- clips: a stretch of a process as a video ---------------- */
+  // A module with timeline(P, st) → { length, at } and a clip() generator shows its progress line
+  // as a timeline: the live step while it runs; once it settles, drag along the line to pick a
+  // stretch and save it as MP4 or GIF. clip(p, P, st, { steps, width, height, grain }) grows the
+  // process again and yields each frame (ImageData-like) or, on the way to the next, the step it
+  // has reached.
+  const CLIP = { mp4: { fps: 30, frames: 450, height: 1080, ext: 'mp4' }, gif: { fps: 25, frames: 250, height: 480, ext: 'gif' } };
+  const clip = { a: null, b: null, len: 0, running: true, progress: 0, at: 0, job: null, drag: null, anchor: 0, mp4: null };
+  const pause = () => new Promise((r) => setTimeout(r, 0));
+  function clipSync(running, v) {
+    const me = inst, on = !!(me && me.st && M.timeline && M.clip);
+    $('clip').hidden = !on;
+    if (!on) return;
+    const tl = M.timeline(P, me.st) || { length: 0, at: 0 };
+    clip.running = running;
+    if (running) { clip.progress = v; clip.at = tl.at; clip.total = tl.length; }
+    else if (tl.length !== clip.len) { clip.len = tl.length; clip.a = clip.b = null; }
+    if (!running && clip.mp4 == null) {
+      clip.mp4 = false;     // ask once whether this browser can encode video at all
+      C.media.pickCodec(1080, 1080, 30).then((c) => { clip.mp4 = c || ''; clipDraw(); });
+    }
+    clipDraw();
+  }
+  // seconds of video for the current stretch: one frame per step, up to the format's limit, plus a 1 s hold
+  function clipFrames(kind) { return Math.min(clip.b - clip.a + 1, CLIP[kind].frames); }
+  function clipDraw() {
+    const job = clip.job, has = clip.a != null && !clip.running;
+    $('clip').classList.toggle('idle', !clip.running && !job);
+    $('clip-fill').style.width = clip.running ? (clip.progress * 100).toFixed(1) + '%' : '100%';
+    const sel = $('clip-sel'), ha = $('clip-a'), hb = $('clip-b');
+    sel.hidden = ha.hidden = hb.hidden = !has;
+    if (has) {
+      const pa = clip.a / clip.len * 100, pb = clip.b / clip.len * 100;
+      sel.style.left = pa + '%'; sel.style.width = (pb - pa) + '%';
+      ha.style.left = pa + '%'; hb.style.left = pb + '%';
+      for (const [h, v] of [[ha, clip.a], [hb, clip.b]]) { h.setAttribute('aria-valuemin', 0); h.setAttribute('aria-valuemax', clip.len); h.setAttribute('aria-valuenow', v); }
+      const done = job ? (job.done / job.n * 100).toFixed(1) : 100;
+      sel.style.background = job ? `linear-gradient(90deg, var(--accent) ${done}%, color-mix(in srgb, var(--accent) 30%, transparent) ${done}%)` : '';
+      $('clip-mp4').title = clip.mp4 === '' ? "This browser can't encode video. Save GIF works." : `About ${(clipFrames('mp4') / CLIP.mp4.fps + 1).toFixed(1)} s of video, 1080 pixels tall`;
+      $('clip-gif').title = `About ${(clipFrames('gif') / CLIP.gif.fps + 1).toFixed(1)} s, 480 pixels tall`;
+    }
+    $('clip-actions').hidden = !has;
+    $('clip-mp4').hidden = $('clip-gif').hidden = $('clip-x').hidden = !!job;
+    $('clip-mp4').disabled = clip.mp4 === '';
+    $('clip-cancel').hidden = !job;
+    $('clip-label').textContent = clip.running ? `Step ${clip.at.toLocaleString()} of ${(clip.total || 0).toLocaleString()}`
+      : job ? (job.done ? `Rendering frame ${job.done} of ${job.n}…` : `Growing to step ${job.reached.toLocaleString()}…`)
+      : has ? `Steps ${clip.a.toLocaleString()} – ${clip.b.toLocaleString()}` : 'Drag along the line to pick a stretch of the growth to save as a video.';
+  }
+  const clipIdle = () => !clip.running && !clip.job && clip.len > 0;
+  {
+    const track = $('clip-track');
+    const stepAt = (e) => { const r = track.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * clip.len); };
+    track.addEventListener('pointerdown', (e) => {
+      if (!clipIdle() || e.button > 0) return;
+      const h = e.target.closest('.clip-h');
+      clip.drag = h ? (h.id === 'clip-a' ? 'a' : 'b') : 'new';
+      if (clip.drag === 'new') { clip.anchor = stepAt(e); clip.a = clip.b = clip.anchor; }
+      track.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      if (h) h.focus();
+      clipDraw();
+    });
+    track.addEventListener('pointermove', (e) => {
+      if (!clip.drag) return;
+      const v = stepAt(e);
+      if (clip.drag === 'new') { clip.a = Math.min(clip.anchor, v); clip.b = Math.max(clip.anchor, v); }
+      else {
+        clip[clip.drag] = v;
+        if (clip.a > clip.b) { [clip.a, clip.b] = [clip.b, clip.a]; clip.drag = clip.drag === 'a' ? 'b' : 'a'; }
+      }
+      clipDraw();
+    });
+    const end = () => { if (!clip.drag) return; clip.drag = null; if (clip.b - clip.a < 1) clip.a = clip.b = null; clipDraw(); };
+    track.addEventListener('pointerup', end);
+    track.addEventListener('pointercancel', end);
+    for (const id of ['clip-a', 'clip-b']) $(id).addEventListener('keydown', (e) => {
+      if (!clipIdle() || clip.a == null) return;
+      const d = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
+      if (!d && e.key !== 'Home' && e.key !== 'End') return;
+      e.preventDefault();
+      let v = e.key === 'Home' ? 0 : e.key === 'End' ? clip.len : (id === 'clip-a' ? clip.a : clip.b) + d * (e.shiftKey ? 10 : 1);
+      v = Math.max(0, Math.min(clip.len, v));
+      if (id === 'clip-a') clip.a = Math.min(v, clip.b - 1); else clip.b = Math.max(v, clip.a + 1);
+      clipDraw();
+    });
+    $('clip-x').addEventListener('click', () => { clip.a = clip.b = null; clipDraw(); });
+    $('clip-mp4').addEventListener('click', () => saveClip('mp4'));
+    $('clip-gif').addEventListener('click', () => saveClip('gif'));
+    $('clip-cancel').addEventListener('click', () => { if (clip.job) clip.job.cancelled = true; });
+  }
+  // restore: put the print back when a cancelled clip leaves the canvas (not when a new run took over)
+  function cancelClip(restore) { if (clip.job) { clip.job.cancelled = true; if (!restore) clip.job.restore = false; } }
+
+  async function saveClip(kind) {
+    const me = inst, m = M, params = Object.assign({}, P);
+    if (!me || !me.p || !m.clip || clip.a == null || clip.job || clip.running) return;
+    const cfg = CLIP[kind], from = clip.a, to = clip.b, a = C.FORMATS[params.format].a;
+    let H = cfg.height, W = 2 * Math.round(H * a / 2);
+    if (W > 1920) { W = 1920; H = 2 * Math.round(W / a / 2); }
+    const n = clipFrames(kind);
+    const steps = Array.from({ length: n }, (_, i) => Math.round(from + (to - from) * (n > 1 ? i / (n - 1) : 0)));
+    const job = clip.job = { done: 0, n, reached: from, cancelled: false, restore: true };
+    // frames play on the canvas as they're made; the print goes back afterwards
+    const cv = me.p.canvas, keep = document.createElement('canvas');
+    keep.width = cv.width; keep.height = cv.height;
+    keep.getContext('2d').drawImage(cv, 0, 0);
+    const frame = document.createElement('canvas');
+    frame.width = W; frame.height = H;
+    const fctx = frame.getContext('2d');
+    const show = () => { const ctx = me.p.drawingContext; ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(frame, 0, 0, cv.width, cv.height); ctx.restore(); };
+    clipDraw();
+    let enc = null, last = null;
+    try {
+      if (kind === 'mp4') {
+        enc = await C.media.mp4({ width: W, height: H, fps: cfg.fps });
+        if (!enc) throw new Error("this browser can't encode video. Save GIF works");
+      }
+      const it = m.clip(me.p, params, me.st, { steps, width: W, height: H, grain: kind === 'mp4' });
+      for (;;) {
+        if (job.cancelled) break;
+        const r = it.next();
+        if (r.done) break;
+        if (typeof r.value === 'number') { job.reached = r.value; clipDraw(); await pause(); continue; }
+        const img = new ImageData(r.value.data, W, H);
+        fctx.putImageData(img, 0, 0);
+        if (job.restore) show();
+        if (kind === 'mp4') { await enc.add(img); last = img; }
+        else {
+          // one palette for the whole GIF, from the first frame and the finished print
+          if (!enc) {
+            const s = document.createElement('canvas'), sh = Math.min(240, keep.height), sw = Math.max(1, Math.round(sh * keep.width / keep.height));
+            s.width = sw; s.height = sh;
+            const sctx = s.getContext('2d');
+            sctx.drawImage(keep, 0, 0, sw, sh);
+            enc = C.media.gif({ width: W, height: H, colors: C.media.palette([img, sctx.getImageData(0, 0, sw, sh)]) });
+          }
+          // a frame behind, so the last one can be held
+          if (last) enc.add(last, Math.round(100 / cfg.fps));
+          last = new ImageData(new Uint8ClampedArray(img.data), W, H);
+        }
+        job.done++;
+        clipDraw();
+        await pause();
+      }
+      if (job.cancelled) { if (enc && enc.cancel) enc.cancel(); return; }
+      if (!last) throw new Error('no frames were made');
+      // hold the last frame for a second
+      if (kind === 'mp4') for (let i = 0; i < cfg.fps && !job.cancelled; i++) await enc.add(last);
+      else enc.add(last, Math.round(100 / cfg.fps) + 100);
+      if (job.cancelled) { if (enc.cancel) enc.cancel(); return; }
+      const blob = await enc.finish();
+      await deliver(blob, `${m.id}-${params.seed}-steps-${from}-${to}.${cfg.ext}`, W, H);
+    } catch (e) {
+      console.error(e);
+      if (enc && enc.cancel) enc.cancel();
+      status(`The ${kind === 'mp4' ? 'video' : 'GIF'} failed: ${e.message}.`, true);
+    } finally {
+      if (job.restore && inst === me) { const ctx = me.p.drawingContext; ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(keep, 0, 0); ctx.restore(); }
+      clip.job = null;
+      clipDraw();
+    }
+  }
 
   /* ---------------- keyboard ---------------- */
   function stepTab(d) {
