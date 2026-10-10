@@ -46,13 +46,15 @@
     { k: 'deposit', g: 'Trail', label: 'Deposit', min: 0, max: 1, step: 0.01, def: 0.5 },
     { k: 'decay', g: 'Trail', label: 'Evaporation', min: 0.02, max: 0.4, step: 0.005, def: 0.15 },
 
-    { k: 'pop', g: 'Colony', label: 'Population', min: 0.02, max: 0.3, step: 0.005, def: 0.15 },
+    // agents per cell; up to 6 (≈ 1.1M agents), which still fits the recipe's two digits
+    { k: 'pop', g: 'Colony', label: 'Population', min: 0.02, max: 6, step: 0.005, def: 0.15, scale: 'log' },
     { k: 'species', g: 'Colony', label: 'Strains', min: 1, max: 3, step: 1, def: 1,
       names: [[1, 'Monoculture'], [2, 'Two strains'], [3, 'Three strains']] },
     { k: 'rivalry', g: 'Colony', label: 'Rivalry', min: 0, max: 2, step: 0.01, def: 0.6,
       names: [[0, 'Indifferent'], [0.15, 'Wary'], [0.7, 'Territorial'], [1.3, 'Hostile']] },
     { k: 'spawn', g: 'Colony', label: 'Inoculation', type: 'select', options: SPAWNS, def: 0 },
-    { k: 'steps', g: 'Colony', label: 'Incubation', min: 80, max: 900, step: 10, def: 400 },
+    // the top of the range reads Ongoing: grow until stopped (Stop / Esc), at most 13000 steps
+    { k: 'steps', g: 'Colony', label: 'Incubation', min: 80, max: 13000, step: 10, def: 400, scale: 'log' },
 
     { k: 'glow', g: 'Plate', label: 'Glow', min: 0, max: 1, step: 0.01, def: 0.45,
       names: [[0, 'None'], [0.05, 'Halo'], [0.4, 'Luminous'], [0.75, 'Blooming']] },
@@ -64,6 +66,10 @@
       names: [[0, 'Full bleed'], [0.02, 'Narrow'], [0.3, 'Plate'], [0.7, 'Wide']] },
     // last, so recipes saved before it existed still load (at Standard)
     { k: 'res', g: 'Plate', label: 'Resolution', type: 'select', options: RES, def: 0, setting: true },
+    // an S-curve on the print's tone response: the trail is a diffusing field, so its edges are
+    // soft ramps; a harder grade turns them into crisp boundaries, as a hard paper grade would
+    { k: 'contrast', g: 'Plate', label: 'Contrast', after: 'exposure', min: 0, max: 1, step: 0.01, def: 0,
+      names: [[0, 'Soft'], [0.15, 'Normal'], [0.4, 'Hard'], [0.7, 'Lith']] },
   ];
   const PB = Object.fromEntries(PARAMS.map((p) => [p.k, p]));
 
@@ -91,8 +97,11 @@
   const kOf = (P) => P.res + 1;
   const devLen = (P) => Math.min(Math.floor(P.steps / 3), Math.max(20, Math.min(60, Math.round(4 / P.decay))));
   const devOf = (P) => P.res ? devLen(P) : 0;
-  // everything but Resolution: runs with the same key are identical up to step steps − devLen
-  const simKey = (P) => JSON.stringify(Object.assign({}, P, { res: 0 }));
+  // The coarse colony depends on everything except how long it grows, Resolution and the look
+  // of the print. Runs with the same key pass through the same states, so a colony grown for
+  // one run can be carried on, resumed or simply re-printed for another.
+  const NONCORE = ['steps', 'res', 'palette', 'glow', 'exposure', 'grain', 'contrast'];
+  const coreKey = (P) => JSON.stringify(Object.assign({}, P, Object.fromEntries(NONCORE.map((k) => [k, 0]))));
 
   // Network regime, read off the parameters. The thresholds come from sweeping the model:
   // RA ≫ SA with a short sensor beads into a lattice; SA ≫ RA clots into spots (or, with a
@@ -222,15 +231,17 @@
     px -= 0.5; py -= 0.5;
     let x0 = Math.floor(px), y0 = Math.floor(py);
     const fx = px - x0, fy = py - y0;
-    x0 = ((x0 % gw) + gw) % gw; y0 = ((y0 % gh) + gh) % gh;
+    if (x0 < 0 || x0 >= gw) x0 = ((x0 % gw) + gw) % gw;
+    if (y0 < 0 || y0 >= gh) y0 = ((y0 % gh) + gh) % gh;
     const x1 = x0 + 1 === gw ? 0 : x0 + 1, y1 = y0 + 1 === gh ? 0 : y0 + 1;
-    const at = (xi, yi) => {
-      const b = (yi * gw + xi) * K;
-      if (K === 1) return T[b];
-      let sum = 0; for (let j = 0; j < K; j++) sum += T[b + j];
-      return T[b + s] * (1 + rep) - rep * sum;
-    };
-    return (at(x0, y0) * (1 - fx) + at(x1, y0) * fx) * (1 - fy) + (at(x0, y1) * (1 - fx) + at(x1, y1) * fx) * fy;
+    const r0 = y0 * gw, r1 = y1 * gw;
+    if (K === 1) return (T[r0 + x0] * (1 - fx) + T[r0 + x1] * fx) * (1 - fy) + (T[r1 + x0] * (1 - fx) + T[r1 + x1] * fx) * fy;
+    return (sensed(T, (r0 + x0) * K, K, s, rep) * (1 - fx) + sensed(T, (r0 + x1) * K, K, s, rep) * fx) * (1 - fy)
+      + (sensed(T, (r1 + x0) * K, K, s, rep) * (1 - fx) + sensed(T, (r1 + x1) * K, K, s, rep) * fx) * fy;
+  }
+  function sensed(T, b, K, s, rep) {
+    let sum = 0; for (let j = 0; j < K; j++) sum += T[b + j];
+    return T[b + s] * (1 + rep) - rep * sum;
   }
 
   // binomial 3×3 blur (more isotropic than Jones's box) and evaporation; toroidal edges
@@ -256,10 +267,13 @@
   // Move the colony onto a grid k× finer each way. The trail is resampled bilinearly; each
   // agent becomes k² agents scattered over its old cell, keeping its heading and strain, so
   // the density per cell is unchanged; sensor reach, step and colony radius scale by k. The
-  // blur stays 3×3, so from here on the trail spreads k× less far.
+  // blur stays 3×3, so from here on the trail spreads k× less far. A colony that would pass
+  // REFINED_MAX agents splits into fewer copies, each laying proportionally more trail.
+  const REFINED_MAX = 2.5e6;
   function refine(S, k) {
     const { gw, gh, K, N, T, x, y, hx, hy, sp } = S;
-    const GW = gw * k, GH = gh * k, kk = k * k, NN = N * kk;
+    const GW = gw * k, GH = gh * k, kk = Math.max(1, Math.min(k * k, Math.floor(REFINED_MAX / N))), NN = N * kk;
+    if (kk < k * k) S.dep *= k * k / kk;
     const U = new Float32Array(GW * GH * K);
     for (let J = 0; J < GH; J++) {
       const fy = (J + 0.5) / k - 0.5, y0 = Math.floor(fy), ty = fy - y0;
@@ -335,6 +349,11 @@
     const gain = 1.4 * Math.pow(4.5, P.exposure);
     const wL = new Float32Array(WN + 1);
     for (let i = 0; i <= WN; i++) wL[i] = 1 - Math.exp(-(i / WN * VMAX) * gain);
+    // contrast: w^a / (w^a + (1 − w)^a) steepens the ramp around half tone into a crisp edge
+    if (P.contrast > 0) {
+      const a = 1 + 7 * P.contrast;
+      for (let i = 0; i <= WN; i++) { const u = Math.pow(wL[i], a); wL[i] = u / (u + Math.pow(1 - wL[i], a)); }
+    }
     const tL = new Float32Array(TN + 1);
     for (let i = 0; i <= TN; i++) { const e = i / TN * EMAX; tL[i] = ink ? Math.exp(-e) : 1 - Math.exp(-e * 1.25); }
     const cL = new Float32Array(1025);
@@ -586,7 +605,10 @@
     }
   }
 
-  function fmtAgents(n) { return n >= 1000 ? `${Math.round(n / 1000)}k agents` : `${n} agents`; }
+  // a run can stop while it's growing on the coarse grid (the fine stretch is the finish)
+  function canStop(st) { return st.phase === 0 && !!st.sim && st.sim.k === 1; }
+
+  function fmtAgents(n) { return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M agents` : n >= 1000 ? `${Math.round(n / 1000)}k agents` : `${n} agents`; }
 
   C.register({
     id: 'physarum',
@@ -597,7 +619,7 @@
     animated: true,
     restartDelay: 120,
     subtitle: 'Slime-mould transport network',
-    about: 'Thousands of agents follow Jeff Jones’s 2010 model of the slime mould Physarum polycephalum: each smells the trail ahead through three sensors, turns toward the strongest, steps and deposits more. The trail blurs and evaporates, and a transport network organises itself, then slowly minimises. Rival strains repel each other and share out the dish. A finer Resolution develops the last few dozen steps on a denser grid, sharpening the tubes without moving them.',
+    about: 'Thousands of agents follow Jeff Jones’s 2010 model of the slime mould Physarum polycephalum: each smells the trail ahead through three sensors, turns toward the strongest, steps and deposits more. The trail blurs and evaporates, and a transport network organises itself, then slowly minimises. Rival strains repel each other and share out the dish. A finer Resolution develops the last few dozen steps on a denser grid, sharpening the tubes without moving them; a harder Contrast prints their edges crisp. Push Incubation to Ongoing and the colony grows until you press Stop.',
     formats: [0, 1, 2, 3],
     formatOdds: [3, 2, 1.3, 0.6],
     defaults: { seed: 1618, format: 0, palette: 0 },
@@ -634,6 +656,9 @@
       // spots read as a star field on a dark ground; on pale agar the stray agents turn to mud
       if (fam === 5 && o.ra <= 12 && PALETTES[pal].mode === 'ink') { o.palette = R.pick([0, 4, 6]); o.glow = R.range(0.3, 0.6); }
       if (fam === 5 && o.ra <= 12) o.exposure = R.range(0.25, 0.45);
+      // drawn last so every earlier draw, and so every other trait, stays as it was
+      // (harder than ≈ 0.45 starts to drop a sparse network's faintest tubes, so Randomize stops there)
+      o.contrast = R() < 0.6 ? 0 : R.range(0.15, 0.45);
       return o;
     },
 
@@ -644,7 +669,7 @@
       if (k === 'decay') return P.decay < 0.06 ? 'Lingering' : P.decay < 0.15 ? 'Slow' : P.decay < 0.26 ? 'Brisk' : 'Fleeting';
       if (k === 'pop') return fmtAgents(agentsOf(P));
       if (k === 'rivalry' && P.species === 1) return 'n/a';
-      if (k === 'steps') return `${P.steps} steps`;
+      if (k === 'steps') return P.steps >= PB.steps.max ? 'Ongoing' : `${P.steps} steps`;
       if (k === 'res') { const { gw, gh } = grid(P), r = kOf(P); return `${gw * r} × ${gh * r} cells`; }
       return null;
     },
@@ -667,20 +692,18 @@
         ['Trail', `${this.traitName('deposit', P)} deposit, ${this.traitName('decay', P).toLowerCase()} evaporation`],
         ['Colony', P.species === 1 ? fmtAgents(agentsOf(P)) : `${fmtAgents(agentsOf(P))}, ${P.species} strains, ${C.nameFrom(PB.rivalry, P.rivalry).toLowerCase()}`],
         ['Inoculation', SPAWNS[P.spawn]],
-        ['Incubation', `${P.steps} steps`],
-        ['Plate', `${C.nameFrom(PB.glow, P.glow)} glow, ${C.nameFrom(PB.exposure, P.exposure).toLowerCase()}`],
+        ['Incubation', P.steps >= PB.steps.max ? `Ongoing, up to ${P.steps} steps` : `${P.steps} steps`],
+        ['Plate', `${C.nameFrom(PB.glow, P.glow)} glow, ${C.nameFrom(PB.exposure, P.exposure).toLowerCase()}${P.contrast > 0 ? `, ${C.nameFrom(PB.contrast, P.contrast).toLowerCase()} contrast` : ''}`],
         ['Resolution', P.res ? `${this.traitName('res', P)}, last ${devOf(P)} steps` : this.traitName('res', P)],
       ];
     },
 
     setup(p) { return {}; },
 
-    start(p, P, st) {
-      st.key = simKey(P);
-      // only Resolution changed (not a replay): resume from the coarse snapshot
-      st.resume = st.snap && st.P && st.P.res !== P.res && st.snap.key === st.key ? st.snap : null;
+    start(p, P, st, opts) {
+      const prev = st.P, S = st.sim;
       st.P = P;
-      st.sim = null;           // built lazily in frame() so slider drags stay cheap
+      st.key = coreKey(P);
       st.total = P.steps;
       st.k = kOf(P);
       st.dev = devOf(P);       // the last st.dev steps run on the k× finer grid
@@ -688,20 +711,32 @@
       st.phase = 0;            // 0 simulate, 1 develop the full-resolution print, 2 done
       st.hi = null;
       st.look = null;
+      st.resume = null;
+      st.patch = null;         // a Stop the shell hadn't recorded yet belongs to the old run
+      // Unless this is a replay or the colony itself changed, keep what has grown: carry on with
+      // the live coarse colony (a longer incubation, a new look, a resize), print a finished one
+      // again, or pick up from the coarse snapshot (another Resolution)
+      const until = st.total - st.dev;
+      const same = !(opts && opts.replay) && S && prev && coreKey(prev) === st.key;
+      if (same && (S.k === 1 ? S.t <= until : S.k === st.k && S.t === st.total)) return;
+      st.sim = null;           // built lazily in frame() so slider drags stay cheap
+      if (same && st.snap && st.snap.key === st.key && st.snap.t <= until) st.resume = st.snap;
     },
 
     frame(p, P, st) {
-      if (!st.sim) { st.sim = st.resume ? resume(P, st.resume) : makeSim(P); st.fr = 0; st.pms = 4; }
+      // st.P stays what start() saw: the shell can call frame() with new params before
+      // start() (a resize redraws at once), and the colony is only ever judged in start()
+      if (!st.sim) { st.sim = st.resume ? resume(P, st.resume) : makeSim(P); st.resume = null; st.fr = 0; st.pms = 4; }
       const S = st.sim;
       if (st.phase === 0) {
         // the dish is redrawn every third frame; the frames between are all simulation
         const show = st.fr % 3 === 0;
         const within = C.budget(show ? Math.max(3, 11.5 - st.pms) : 11.5);
-        do {
-          if (S.t === st.snapAt && !(st.snap && st.snap.key === st.key)) st.snap = snapshot(S, st.key);
+        while (S.t < st.total && within()) {
+          if (S.t === st.snapAt && S.k === 1 && !(st.snap && st.snap.key === st.key && st.snap.t === S.t)) st.snap = snapshot(S, st.key);
           if (S.k < st.k && S.t === st.total - st.dev) { refine(S, st.k); st.look = null; }
           stepSim(S);
-        } while (S.t < st.total && within());
+        }
         const last = S.t >= st.total;
         if (show || last) {
           const t0 = performance.now();
@@ -731,6 +766,19 @@
         return true;
       }
       return false;
+    },
+
+    canStop,
+    // Stop finishes at the next whole ten of steps whose snapshot point (and fine stretch) is
+    // still ahead, and records it, so a fresh run of the recorded recipe grows the same print
+    stop(p, P, st) {
+      if (!canStop(st)) return;
+      const S = st.sim, at = (T) => Object.assign({}, P, { steps: T });
+      let T = Math.max(PB.steps.min, Math.ceil(S.t / 10) * 10);
+      while (T < PB.steps.max && T - devLen(at(T)) < S.t) T += 10;
+      if (T >= st.total) return;           // it finishes sooner as it is
+      st.total = T; st.dev = devOf(at(T)); st.snapAt = T - devLen(at(T));
+      st.patch = { steps: T };
     },
 
     progress(st) {
