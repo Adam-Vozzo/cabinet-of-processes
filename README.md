@@ -38,7 +38,7 @@ print-size PNG export.
 - The pin next to a slider keeps it fixed when you Randomize or Mutate.
 - The **recipe** code holds the algorithm, seed and every slider. Paste one into the recipe box to load it.
 - **Save PNG** renders about 3000 px tall.
-- Keys: `N` new seed, `R` randomize, `M` mutate, `S` save, `P` replay, `[` `]` step the seed, `,` `.` switch tabs.
+- Keys: `N` new seed, `R` randomize, `M` mutate, `S` save, `P` replay, `Esc` stop a growing run, `[` `]` step the seed, `,` `.` switch tabs.
 
 Reaction–Diffusion, Strata, Marbling, Thin Section and Chladni need WebGL2.
 

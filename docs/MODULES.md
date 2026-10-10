@@ -54,6 +54,9 @@ module file and add a `<script src="modules/<id>.js">` line to `index.html` befo
       // setting: output quality rather than a trait (e.g. a resolution). Randomize, Mutate and
       // Reset leave it alone and it gets no pin, but it is still part of the recipe.
       { k: 'detail', g: 'Paper', label: 'Detail', type: 'select', options: ['Standard', 'Fine'], def: 0, setting: true },
+      // scale: 'log' (min > 0): the slider travels by ratio, for spans like 80–13000; Mutate
+      // nudges it by about ±30 %. after: 'drops' shows it straight after that param in the panel.
+      { k: 'time', g: 'Ink', label: 'Settling', min: 10, max: 5000, step: 10, def: 200, scale: 'log', after: 'drops' },
     ],
     randomize(R, seed) { return { drops: R.int(8, 40), pattern: R() < 0.5 ? 1 : 2 }; },
     traitName(k, P) { return null; },   // optional: compute a name from geometry; null → default
@@ -61,8 +64,15 @@ module file and add a `<script src="modules/<id>.js">` line to `index.html` befo
     sheet(P) { return [['Pattern', '…'], ['Drops', '…']]; },       // 8–12 [label, value] pairs
 
     setup(p) { return { /* state */ }; },   // once, after the canvas exists. Create shaders/buffers here.
-    start(p, P, st) { },                    // (re)start for params P. Cheap. Reset state only.
+    start(p, P, st, opts) { },              // (re)start for params P. Cheap. Reset state only. opts.replay
+                                            //   means the user asked to run again from the start; any
+                                            //   other call (param change, resize) may keep work P still allows
     frame(p, P, st) { return false; },      // inside p5 draw(). Work ≤ 12 ms, draw, return true while busy.
+                                            //   Set st.patch = { k: v } to record a param you settled on (it
+                                            //   updates the panel and recipe without a restart). Don't treat P
+                                            //   here as final: a resize can call frame() once before start().
+    stop(p, P, st) { },                     // optional: finish now (Stop button, Esc) with what has grown
+    canStop(st) { return true; },           // optional: whether Stop is offered at the moment
     progress(st) { return 0.5; },           // optional 0..1 for the progress bar
     exportAt(p, P, W, H, st) { },           // optional: return a W×H HTMLCanvasElement (or a Promise of one)
     dispose(p, st) { },                     // optional cleanup
