@@ -575,8 +575,8 @@
     if (P.so >= 20) return { name: 'Filamentous', what: 'thick strands laced across the slide' };
     return { name: 'Arborescent', what: 'a branching web of strands' };
   }
-  const agentsOf = (P) => engine().agentsOf(simParams(P));
-  const fmtAgents = (n) => engine().fmtAgents(n);
+  const agentsOf = (P) => (engine() ? engine().agentsOf(simParams(P)) : 0);
+  const fmtAgents = (n) => (engine() ? engine().fmtAgents(n) : `${n} agents`);
 
   C.register({
     id: 'culture',
@@ -667,7 +667,11 @@
       ];
     },
 
-    setup(p) { return {}; },
+    setup(p) {
+      // the colony grows in physarum.js; a cached copy from before Culture existed lacks it
+      if (!engine()) throw new Error('The page has an outdated copy of the Physarum tab. Reload it (Ctrl+Shift+R) to fetch the current one.');
+      return {};
+    },
 
     start(p, P, st, opts) {
       const prev = st.P, S = st.sim;

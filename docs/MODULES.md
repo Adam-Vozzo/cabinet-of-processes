@@ -6,7 +6,9 @@ the slider panel, trait sheet, history, recipe codes and PNG export from what yo
 your module its own p5 instance while its tab is open.
 
 Read `core.js` (helpers) and `modules/strata.js` (a small WebGL module) first. To add a tab, write the
-module file and add a `<script src="modules/<id>.js">` line to `index.html` before `ui.js`.
+module file and add a `<script src="modules/<id>.js?v=…">` line to `index.html` before `ui.js`, with the
+same `?v=` as the other scripts. Bump that version on every script tag whenever a change ships, so
+browsers don't run new files against cached old ones.
 
 ## Hard rules
 
