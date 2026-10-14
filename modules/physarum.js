@@ -83,7 +83,8 @@
   }
   function grid(P) {
     const { pa } = plate(P);
-    const gw = Math.round(Math.sqrt(CELLS * pa)), gh = Math.round(CELLS / gw);
+    const n = P.cells || CELLS;              // the Culture tab zooms in by growing on fewer cells
+    const gw = Math.round(Math.sqrt(n * pa)), gh = Math.round(n / gw);
     return { gw, gh };
   }
   // quantised so an engine's last-bit Math.pow differences can't leak into the simulation
@@ -609,6 +610,9 @@
   function canStop(st) { return st.phase === 0 && !!st.sim && st.sim.k === 1; }
 
   function fmtAgents(n) { return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M agents` : n >= 1000 ? `${Math.round(n / 1000)}k agents` : `${n} agents`; }
+
+  // the agent model, for other tabs that grow the same colonies and print them their own way
+  C.physarum = { makeSim, stepSim, agentsOf, dsin, dcos, fmtAgents };
 
   C.register({
     id: 'physarum',

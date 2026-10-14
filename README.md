@@ -1,6 +1,6 @@
 # Cabinet of Processes
 
-Sixteen generative-art algorithms in p5.js, one per tab. Each has sliders whose values carry names from
+Seventeen generative-art algorithms in p5.js, one per tab. Each has sliders whose values carry names from
 the subject's own vocabulary, plus Randomize, Mutate, pins, a history strip, recipe codes and
 print-size PNG export.
 
@@ -18,6 +18,7 @@ print-size PNG export.
 | Chladni | Sand settling on the nodal lines of a vibrating plate |
 | Reaction–Diffusion | Gray-Scott on the GPU, with the named regimes from Pearson and Munafo |
 | Physarum | Jeff Jones's slime-mould agent model, up to three rival strains |
+| Culture | The same agents inoculated on a slide and printed as stained cells: splatted by density, then each pixel climbs the slope of the brightness |
 | Space Colonization | Runions' algorithm: leaves, trees, roots, sea fans, mycelium |
 | Differential Growth | A curve that keeps growing in limited space and buckles into coral |
 | DLA | Diffusion-limited aggregation: frost, mineral dendrites, electrodeposits |
@@ -38,7 +39,7 @@ print-size PNG export.
 - The pin next to a slider keeps it fixed when you Randomize or Mutate.
 - The **recipe** code holds the algorithm, seed and every slider. Paste one into the recipe box to load it.
 - **Save PNG** renders about 3000 px tall.
-- On Physarum, the line under the image counts the steps as the colony grows. Once it has finished, drag along the line to pick a stretch and save it as an MP4 (1080 px tall) or a GIF (480 px tall).
+- On Physarum and Culture, the line under the image counts the steps as the colony grows. Once it has finished, drag along the line to pick a stretch and save it as an MP4 (1080 px tall) or a GIF (480 px tall).
 - Keys: `N` new seed, `R` randomize, `M` mutate, `S` save, `P` replay, `Esc` stop a growing run, `[` `]` step the seed, `,` `.` switch tabs.
 
 Reaction–Diffusion, Strata, Marbling, Thin Section and Chladni need WebGL2.
@@ -68,5 +69,5 @@ Each tab runs in its own p5.js instance (p5 1.11.13, loaded from cdnjs) while it
 ## Credits
 
 Built with [p5.js](https://p5js.org). 2D simplex noise in the shaders is by Ian McEwan, Ashima Arts (MIT).
-The Voronoi edge distance follows Inigo Quilez. Each tab's About text names the algorithm it implements. Inspired by long-form generative art such as Tyler Hobbs's Fidenza; none of its code or
+The Voronoi edge distance follows Inigo Quilez. Culture's print follows a method vanity_ibex (Jakob Bock) described for his Houdini particle renders. Each tab's About text names the algorithm it implements. Inspired by long-form generative art such as Tyler Hobbs's Fidenza; none of its code or
 palettes are used.
